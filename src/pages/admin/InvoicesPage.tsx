@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { AdminLayout } from '../../components/admin/AdminLayout';
-import { Button } from '../../components/UI/Button';
-import { Input } from '../../components/UI/Input';
-import { Modal } from '../../components/UI/Modal';
+import AdminLayout from '../../components/admin/AdminLayout';
+import Button from '../../components/UI/Button';
+import Input from '../../components/UI/Input';
+import Modal from '../../components/UI/Modal';
 
 interface Invoice {
   id: string;
@@ -14,7 +14,7 @@ interface Invoice {
   createdAt: string;
 }
 
-export const InvoicesPage: React.FC = () => {
+const InvoicesPage: React.FC = () => {
   const [invoices, setInvoices] = useState<Invoice[]>([
     {
       id: '1',
@@ -196,3 +196,5 @@ export const InvoicesPage: React.FC = () => {
     </AdminLayout>
   );
 };
+
+export default InvoicesPage;
