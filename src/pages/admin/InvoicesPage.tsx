@@ -6,7 +6,7 @@ import Input from '../../components/UI/Input';
 import Modal from '../../components/UI/Modal';
 
 const InvoicesPage: React.FC = () => {
-  const { invoices, customers, addInvoice, updateInvoice, deleteInvoice } = useData();
+  const { invoices, customers, inventory, companyConfig, addInvoice, updateInvoice, deleteInvoice } = useData();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -30,6 +30,7 @@ const InvoicesPage: React.FC = () => {
   });
 
   const activeCustomers = customers.filter(customer => !customer.isDeleted);
+  const hotelInventory = inventory.filter(item => item.itemType === 'Hotel');
 
   const filteredInvoices = invoices.filter(invoice => {
     const matchesSearch = invoice.invoiceNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -46,7 +47,7 @@ const InvoicesPage: React.FC = () => {
     
     // Calculate totals
     const subtotal = formData.items.reduce((sum, item) => sum + item.total, 0);
-    const tax = subtotal * 0.05; // 5% tax
+    const tax = formData.invoiceType === 'flights' ? 0 : subtotal * (companyConfig.taxRate / 100);
     const total = subtotal + tax;
     
     const invoiceData = {
@@ -154,18 +155,57 @@ const InvoicesPage: React.FC = () => {
   };
 
   const addItem = () => {
-    const newItem = {
+    let newItem: any = {
       id: Date.now().toString(),
-      type: formData.invoiceType === 'flights' ? 'flight' : 'activity',
-      itemName: '',
-      supplier: '',
-      childQty: 0,
-      adultQty: 1,
-      childPrice: 0,
-      adultPrice: 0,
-      tax: 0,
       total: 0,
     };
+
+    if (formData.invoiceType === 'flights') {
+      newItem = {
+        ...newItem,
+        type: 'flight',
+        flightType: 'oneway',
+        guestName: '',
+        travelDate: '',
+        returnDate: '',
+        source: '',
+        destination: '',
+        passportNo: '',
+        buyPrice: 0,
+        sellPrice: 0,
+      };
+    } else if (formData.invoiceType === 'activities') {
+      newItem = {
+        ...newItem,
+        type: 'activity',
+        itemName: '',
+        supplier: '',
+        childQty: 0,
+        adultQty: 0,
+        childPrice: 0,
+        adultPrice: 0,
+        vatPercentage: companyConfig.taxRate,
+        childTotal: 0,
+        adultTotal: 0,
+        vatAmount: 0,
+      };
+    } else if (formData.invoiceType === 'hotel') {
+      newItem = {
+        ...newItem,
+        type: 'hotel',
+        hotelId: '',
+        hotelName: '',
+        checkInDate: '',
+        checkOutDate: '',
+        guests: 1,
+        pricePerNight: 0,
+        nights: 0,
+        notes: '',
+        vatPercentage: companyConfig.taxRate,
+        vatAmount: 0,
+      };
+    }
+
     setFormData({ ...formData, items: [...formData.items, newItem] });
   };
 
@@ -173,12 +213,26 @@ const InvoicesPage: React.FC = () => {
     const updatedItems = [...formData.items];
     updatedItems[index] = { ...updatedItems[index], [field]: value };
     
-    // Recalculate total for the item
     const item = updatedItems[index];
+    
+    // Recalculate totals based on item type
     if (item.type === 'activity') {
-      item.total = (item.childQty * item.childPrice) + (item.adultQty * item.adultPrice) + (item.tax || 0);
-    } else {
-      item.total = (item.sellPrice || 0) + (item.tax || 0);
+      item.childTotal = item.childQty * item.childPrice;
+      item.adultTotal = item.adultQty * item.adultPrice;
+      const subtotal = item.childTotal + item.adultTotal;
+      item.vatAmount = subtotal * (item.vatPercentage / 100);
+      item.total = subtotal + item.vatAmount;
+    } else if (item.type === 'hotel') {
+      if (item.checkInDate && item.checkOutDate) {
+        const checkIn = new Date(item.checkInDate);
+        const checkOut = new Date(item.checkOutDate);
+        item.nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
+      }
+      const subtotal = item.nights * item.pricePerNight;
+      item.vatAmount = subtotal * (item.vatPercentage / 100);
+      item.total = subtotal + item.vatAmount;
+    } else if (item.type === 'flight') {
+      item.total = item.sellPrice || 0;
     }
     
     setFormData({ ...formData, items: updatedItems });
@@ -189,6 +243,285 @@ const InvoicesPage: React.FC = () => {
     setFormData({ ...formData, items: updatedItems });
   };
 
+  const renderItemFields = (item: any, index: number) => {
+    if (item.type === 'flight') {
+      return (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Flight Type</label>
+              <select
+                value={item.flightType}
+                onChange={(e) => updateItem(index, 'flightType', e.target.value)}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="oneway">One Way</option>
+                <option value="return">Return</option>
+              </select>
+            </div>
+            <Input
+              label="Guest Name"
+              value={item.guestName}
+              onChange={(e) => updateItem(index, 'guestName', e.target.value)}
+              required
+            />
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Travel Date"
+              type="date"
+              value={item.travelDate}
+              onChange={(e) => updateItem(index, 'travelDate', e.target.value)}
+              required
+            />
+            {item.flightType === 'return' && (
+              <Input
+                label="Return Date"
+                type="date"
+                value={item.returnDate}
+                onChange={(e) => updateItem(index, 'returnDate', e.target.value)}
+                required
+              />
+            )}
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Source"
+              value={item.source}
+              onChange={(e) => updateItem(index, 'source', e.target.value)}
+              required
+            />
+            <Input
+              label="Destination"
+              value={item.destination}
+              onChange={(e) => updateItem(index, 'destination', e.target.value)}
+              required
+            />
+          </div>
+          
+          <div className="grid grid-cols-3 gap-3">
+            <Input
+              label="Passport No"
+              value={item.passportNo}
+              onChange={(e) => updateItem(index, 'passportNo', e.target.value)}
+            />
+            <Input
+              label="Buy Price"
+              type="number"
+              step="0.01"
+              value={item.buyPrice}
+              onChange={(e) => updateItem(index, 'buyPrice', parseFloat(e.target.value) || 0)}
+            />
+            <Input
+              label="Sell Price"
+              type="number"
+              step="0.01"
+              value={item.sellPrice}
+              onChange={(e) => updateItem(index, 'sellPrice', parseFloat(e.target.value) || 0)}
+              required
+            />
+          </div>
+        </div>
+      );
+    } else if (item.type === 'activity') {
+      return (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Activity Name"
+              value={item.itemName}
+              onChange={(e) => updateItem(index, 'itemName', e.target.value)}
+              required
+            />
+            <Input
+              label="Supplier"
+              value={item.supplier}
+              onChange={(e) => updateItem(index, 'supplier', e.target.value)}
+            />
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Number of Kids"
+              type="number"
+              value={item.childQty}
+              onChange={(e) => updateItem(index, 'childQty', parseInt(e.target.value) || 0)}
+            />
+            <Input
+              label="Number of Adults"
+              type="number"
+              value={item.adultQty}
+              onChange={(e) => updateItem(index, 'adultQty', parseInt(e.target.value) || 0)}
+            />
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Price per Child"
+              type="number"
+              step="0.01"
+              value={item.childPrice}
+              onChange={(e) => updateItem(index, 'childPrice', parseFloat(e.target.value) || 0)}
+            />
+            <Input
+              label="Price per Adult"
+              type="number"
+              step="0.01"
+              value={item.adultPrice}
+              onChange={(e) => updateItem(index, 'adultPrice', parseFloat(e.target.value) || 0)}
+            />
+          </div>
+          
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Total for Kids</label>
+              <div className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-sm font-medium">
+                ${item.childTotal?.toFixed(2) || '0.00'}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Total for Adults</label>
+              <div className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-sm font-medium">
+                ${item.adultTotal?.toFixed(2) || '0.00'}
+              </div>
+            </div>
+            <Input
+              label="VAT %"
+              type="number"
+              step="0.01"
+              value={item.vatPercentage}
+              onChange={(e) => updateItem(index, 'vatPercentage', parseFloat(e.target.value) || 0)}
+            />
+          </div>
+          
+          <div className="bg-blue-50 p-3 rounded-lg">
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div>
+                <span className="text-gray-600">Subtotal:</span>
+                <div className="font-medium">${((item.childTotal || 0) + (item.adultTotal || 0)).toFixed(2)}</div>
+              </div>
+              <div>
+                <span className="text-gray-600">VAT ({item.vatPercentage}%):</span>
+                <div className="font-medium">${item.vatAmount?.toFixed(2) || '0.00'}</div>
+              </div>
+              <div>
+                <span className="text-gray-600">Total:</span>
+                <div className="font-semibold text-blue-600">${item.total?.toFixed(2) || '0.00'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    } else if (item.type === 'hotel') {
+      return (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Hotel Selection</label>
+            <select
+              value={item.hotelId}
+              onChange={(e) => {
+                const selectedHotel = hotelInventory.find(h => h.id === e.target.value);
+                updateItem(index, 'hotelId', e.target.value);
+                updateItem(index, 'hotelName', selectedHotel?.name || '');
+                updateItem(index, 'pricePerNight', selectedHotel?.pricePerNight || 0);
+              }}
+              className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              required
+            >
+              <option value="">Select a hotel...</option>
+              {hotelInventory.map(hotel => (
+                <option key={hotel.id} value={hotel.id}>
+                  {hotel.name} - ${hotel.pricePerNight}/night
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Check-in Date"
+              type="date"
+              value={item.checkInDate}
+              onChange={(e) => updateItem(index, 'checkInDate', e.target.value)}
+              required
+            />
+            <Input
+              label="Check-out Date"
+              type="date"
+              value={item.checkOutDate}
+              onChange={(e) => updateItem(index, 'checkOutDate', e.target.value)}
+              required
+            />
+          </div>
+          
+          <div className="grid grid-cols-3 gap-3">
+            <Input
+              label="Number of Guests"
+              type="number"
+              value={item.guests}
+              onChange={(e) => updateItem(index, 'guests', parseInt(e.target.value) || 1)}
+              required
+            />
+            <Input
+              label="Price per Night"
+              type="number"
+              step="0.01"
+              value={item.pricePerNight}
+              onChange={(e) => updateItem(index, 'pricePerNight', parseFloat(e.target.value) || 0)}
+              required
+            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nights</label>
+              <div className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-sm font-medium">
+                {item.nights || 0}
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="VAT %"
+              type="number"
+              step="0.01"
+              value={item.vatPercentage}
+              onChange={(e) => updateItem(index, 'vatPercentage', parseFloat(e.target.value) || 0)}
+            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+              <textarea
+                value={item.notes}
+                onChange={(e) => updateItem(index, 'notes', e.target.value)}
+                rows={2}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Special requests, room preferences..."
+              />
+            </div>
+          </div>
+          
+          <div className="bg-green-50 p-3 rounded-lg">
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div>
+                <span className="text-gray-600">Subtotal:</span>
+                <div className="font-medium">${((item.nights || 0) * (item.pricePerNight || 0)).toFixed(2)}</div>
+              </div>
+              <div>
+                <span className="text-gray-600">VAT ({item.vatPercentage}%):</span>
+                <div className="font-medium">${item.vatAmount?.toFixed(2) || '0.00'}</div>
+              </div>
+              <div>
+                <span className="text-gray-600">Total:</span>
+                <div className="font-semibold text-green-600">${item.total?.toFixed(2) || '0.00'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    
+    return null;
+  };
   return (
     <div className="space-y-6">
       {/* Header */}
