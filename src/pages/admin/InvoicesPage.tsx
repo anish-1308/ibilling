@@ -31,7 +31,6 @@ const InvoicesPage: React.FC = () => {
 
   const activeCustomers = customers.filter(customer => !customer.isDeleted);
   const hotelInventory = inventory.filter(item => item.itemType === 'Hotel');
-  const hotelInventory = inventory.filter(item => item.itemType === 'Hotel');
 
   const filteredInvoices = invoices.filter(invoice => {
     const matchesSearch = invoice.invoiceNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
